@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 
-app=FastAPI(title="AI AGENT Platform")
+from app.api import auth, conversations
+
+app = FastAPI(title="AI Agent Platform")
+app.include_router(auth.router)
+app.include_router(conversations.router)
+
 
 @app.get("/health")
 async def health():
-    return{"status":"ok"}
+    return {"status": "ok"}
