@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,4 +30,10 @@ class ConversationOut(BaseModel):
 
 class ConversationDetail(ConversationOut):
     messages: list[MessageOut]
+
+class MessageCreate(BaseModel):
+    content: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)
+    ]
+
     

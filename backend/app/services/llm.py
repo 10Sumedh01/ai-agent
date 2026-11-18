@@ -1,6 +1,5 @@
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
-
 from app.core.config import settings
 
 SYSTEM_PROMPT = "You are a helpful assistant. Be concise and accurate."
