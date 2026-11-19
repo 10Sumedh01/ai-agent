@@ -14,4 +14,4 @@ async def get_db():
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     """Session factory for code that outlives the request (SSE streams).
     Overridden in tests to point at agent_test."""
-    return SessionLocal
+    return SessionLocal 
