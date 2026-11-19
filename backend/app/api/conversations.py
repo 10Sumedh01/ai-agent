@@ -11,6 +11,8 @@ from langchain_core.messages import BaseMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
+from app.api.rate_limit import rate_limit_chat
+
 
 from app.api.deps import get_current_user
 from app.db.models import Conversation, User
@@ -133,6 +135,7 @@ async def delete_conversation(
     "/{conversation_id}/messages",
     response_model=MessageOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit_chat)],
 )
 async def send_message(
     conversation_id: uuid.UUID,
@@ -153,8 +156,10 @@ async def send_message(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "LLM returned an empty response")
     return await add_message(db, conversation_id, "assistant", text)
 
-
-@router.post("/{conversation_id}/messages/stream")
+@router.post(
+    "/{conversation_id}/messages/stream",
+    dependencies=[Depends(rate_limit_chat)],
+)
 async def stream_message(
     conversation_id: uuid.UUID,
     data: MessageCreate,
