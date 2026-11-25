@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     document_max_size_mb: int = Field(default=10, ge=1)
     jwt_secret: str
     chat_rate_limit_per_minute: int = 10
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    qdrant_collection: str = "documents"
+    chunk_size: int = 1000
+    chunk_overlap: int = 150
+    rag_top_k: int = 5
 
 
 settings = Settings()
