@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Agent Platform", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(conversations.router)
+app.include_router(documents.router)
 
 
 @app.get("/health")
