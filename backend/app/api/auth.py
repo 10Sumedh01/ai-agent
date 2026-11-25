@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, RedirectResponse, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -12,15 +13,33 @@ from app.schemas.auth import Token, UserCreate, UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
-    existing = await db.scalar(select(User).where(User.email == data.email.lower()))
+@router.post("/register", response_model=UserOut | Token)
+async def register(
+    data: UserCreate,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    email = data.email.lower()
+    existing = await db.scalar(select(User).where(User.email == email))
     if existing:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
-    user = User(email=data.email.lower(), hashed_password=hash_password(data.password))
+        if not verify_password(data.password, existing.hashed_password):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
+        return Token(access_token=create_access_token(str(existing.id)))
+
+    user = User(email=email, hashed_password=hash_password(data.password))
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing = await db.scalar(select(User).where(User.email == email))
+        if existing is None:
+            raise
+        if not verify_password(data.password, existing.hashed_password):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
+        return Token(access_token=create_access_token(str(existing.id)))
     await db.refresh(user)
+    response.status_code = status.HTTP_201_CREATED
     return user
 
 
@@ -35,3 +54,7 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = 
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)):
     return user
+
+@router.get('/logout')
+async def logout():
+    return RedirectResponse(url='/')
