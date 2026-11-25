@@ -11,11 +11,12 @@ from langchain_core.messages import BaseMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
+from starlette.concurrency import run_in_threadpool
+
 from app.api.rate_limit import rate_limit_chat
 
-
 from app.api.deps import get_current_user
-from app.db.models import Conversation, User
+from app.db.models import Conversation, Document, User
 from app.db.session import get_db, get_sessionmaker
 from app.schemas.chat import (
     ConversationCreate,
@@ -26,6 +27,7 @@ from app.schemas.chat import (
     MessageOut,
 )
 from app.services.chat import DEFAULT_TITLE, add_message, load_history, make_title
+from app.services.documents import search_documents
 from app.services.llm import get_llm, to_lc_messages
 
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ async def get_owned_conversation(
 
 async def prepare_turn(
     conversation_id: uuid.UUID, content: str, db: AsyncSession, user: User
-) -> list[BaseMessage]:
+) -> tuple[list[BaseMessage], list[dict]]:
     """Ownership check, auto-title, persist the user message, return LLM input.
     Commits before the LLM call so no transaction is held open while waiting on Groq."""
     conv = await get_owned_conversation(conversation_id, db, user)
@@ -56,7 +58,24 @@ async def prepare_turn(
         conv.title = make_title(content)
     await add_message(db, conversation_id, "user", content)
     history = await load_history(db, conversation_id)
-    return to_lc_messages(history)
+    has_documents = await db.scalar(
+        select(Document.id)
+        .where(Document.user_id == user.id, Document.status == "ready")
+        .limit(1)
+    )
+    try:
+        sources = (
+            await run_in_threadpool(search_documents, content, user.id)
+            if has_documents
+            else []
+        )
+    except Exception as exc:
+        logger.exception("Document retrieval failed for user %s", user.id)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Document search is temporarily unavailable",
+        ) from exc
+    return to_lc_messages(history, sources), sources
 
 
 def sse(event: str, data: dict) -> str:
@@ -65,11 +84,14 @@ def sse(event: str, data: dict) -> str:
 
 
 async def save_partial(
-    sessionmaker: async_sessionmaker[AsyncSession], conversation_id: uuid.UUID, text: str
+    sessionmaker: async_sessionmaker[AsyncSession],
+    conversation_id: uuid.UUID,
+    text: str,
+    sources: list[dict],
 ) -> None:
     if text.strip():
         async with sessionmaker() as s:
-            await add_message(s, conversation_id, "assistant", text)
+            await add_message(s, conversation_id, "assistant", text, sources)
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
@@ -144,7 +166,7 @@ async def send_message(
     user: User = Depends(get_current_user),
     llm: BaseChatModel = Depends(get_llm),
 ):
-    messages = await prepare_turn(conversation_id, data.content, db, user)
+    messages, sources = await prepare_turn(conversation_id, data.content, db, user)
     try:
         reply = await llm.ainvoke(messages)
     except Exception as exc:  # narrowed to groq/httpx errors in Phase 5
@@ -154,7 +176,7 @@ async def send_message(
     text = reply.content if isinstance(reply.content, str) else ""
     if not text.strip():
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "LLM returned an empty response")
-    return await add_message(db, conversation_id, "assistant", text)
+    return await add_message(db, conversation_id, "assistant", text, sources)
 
 @router.post(
     "/{conversation_id}/messages/stream",
@@ -169,7 +191,7 @@ async def stream_message(
     sessionmaker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker),
 ):
     # 404 / 422 are raised here, before any bytes are streamed
-    messages = await prepare_turn(conversation_id, data.content, db, user)
+    messages, sources = await prepare_turn(conversation_id, data.content, db, user)
 
     async def event_stream() -> AsyncIterator[str]:
         parts: list[str] = []
@@ -185,17 +207,19 @@ async def stream_message(
                 return
 
             async with sessionmaker() as s:
-                msg = await add_message(s, conversation_id, "assistant", text)
+                msg = await add_message(s, conversation_id, "assistant", text, sources)
                 done = {"id": str(msg.id), "created_at": msg.created_at.isoformat()}
             yield sse("done", done)
 
         except asyncio.CancelledError:
             # client disconnected: keep what we have; shield so the save isn't cancelled too
-            await asyncio.shield(save_partial(sessionmaker, conversation_id, "".join(parts)))
+            await asyncio.shield(
+                save_partial(sessionmaker, conversation_id, "".join(parts), sources)
+            )
             raise
         except Exception:
             logger.exception("LLM stream failed for conversation %s", conversation_id)
-            await save_partial(sessionmaker, conversation_id, "".join(parts))
+            await save_partial(sessionmaker, conversation_id, "".join(parts), sources)
             yield sse("error", {"detail": "LLM request failed"})
 
     return StreamingResponse(

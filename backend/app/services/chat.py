@@ -16,9 +16,13 @@ def make_title(text: str) -> str:
 
 
 async def add_message(
-    db: AsyncSession, conversation_id: uuid.UUID, role: str, content: str
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    role: str,
+    content: str,
+    sources: list[dict] | None = None,
 ) -> Message:
-    msg = Message(conversation_id=conversation_id, role=role, content=content)
+    msg = Message(conversation_id=conversation_id, role=role, content=content, sources=sources)
     db.add(msg)
     await db.commit()
     await db.refresh(msg)

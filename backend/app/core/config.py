@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +12,9 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "user_documents"
+    document_storage_path: Path = Path("data/documents")
+    document_max_size_mb: int = Field(default=10, ge=1)
     jwt_secret: str
     chat_rate_limit_per_minute: int = 10
 
