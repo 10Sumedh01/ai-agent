@@ -1,3 +1,6 @@
+from app.core.config import settings
+
+
 async def test_register_and_me(client, make_user):
     headers = await make_user()
     r = await client.get("/auth/me", headers=headers)
@@ -46,3 +49,45 @@ async def test_me_requires_token(client):
 async def test_short_password_rejected(client):
     r = await client.post("/auth/register", json={"email": "a@example.com", "password": "short"})
     assert r.status_code == 422
+
+
+async def test_login_is_rate_limited_by_client_ip(client, monkeypatch):
+    monkeypatch.setattr(settings, "auth_login_rate_limit_per_minute", 2)
+    await client.post(
+        "/auth/register",
+        json={"email": "a@example.com", "password": "password123"},
+    )
+
+    for _ in range(2):
+        response = await client.post(
+            "/auth/login",
+            data={"username": "a@example.com", "password": "wrongpass1"},
+        )
+        assert response.status_code == 401
+
+    limited = await client.post(
+        "/auth/login",
+        data={"username": "a@example.com", "password": "wrongpass1"},
+    )
+    assert limited.status_code == 429
+    assert "Retry-After" in limited.headers
+
+
+async def test_registration_is_rate_limited_by_client_ip(client, monkeypatch):
+    monkeypatch.setattr(settings, "auth_register_rate_limit_per_minute", 1)
+    body = {"email": "a@example.com", "password": "password123"}
+    assert (await client.post("/auth/register", json=body)).status_code == 201
+
+    limited = await client.post(
+        "/auth/register",
+        json={"email": "b@example.com", "password": "password123"},
+    )
+    assert limited.status_code == 429
+    assert "Retry-After" in limited.headers
+
+
+async def test_logout_tells_client_to_discard_token(client):
+    response = await client.post("/auth/logout")
+    assert response.status_code == 200
+    assert "discard the access token" in response.json()["message"].lower()
+    assert "does not revoke" in response.json()["message"].lower()

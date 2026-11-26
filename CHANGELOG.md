@@ -4,6 +4,29 @@ This file records meaningful project changes, why they were made, and any code
 that was removed. Add new entries at the top and state `None` when a change
 removes no code. Git history remains the source for exact line-by-line diffs.
 
+## 2026-11-26 — Authentication rate limits and logout guidance
+
+**What changed**
+
+- Added Redis-backed per-IP rate limits for login and registration, configurable
+  through `AUTH_LOGIN_RATE_LIMIT_PER_MINUTE` and
+  `AUTH_REGISTER_RATE_LIMIT_PER_MINUTE`.
+- Changed `/auth/logout` to return explicit guidance for discarding the
+  client-held access token instead of redirecting as if the token were revoked.
+- Documented the stateless logout behavior and added authentication rate-limit
+  and logout tests.
+
+**Why**
+
+Rate limits reduce password-guessing and registration abuse. Since access
+tokens are stateless and are not revoked server-side, logout must make clear
+that clients need to discard their token.
+
+**Code removed**
+
+The redirect-only logout implementation was replaced with a JSON response.
+Issued tokens are not revoked and remain valid until expiration.
+
 ## 2026-11-26 — Document cleanup and indexing retries
 
 **What changed**
