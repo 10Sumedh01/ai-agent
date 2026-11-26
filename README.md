@@ -169,6 +169,17 @@ curl -X POST http://localhost:8000/auth/login \
   -d "username=learner@example.com&password=password123"
 ```
 
+Logout is client-side because access tokens are stateless. Call `POST /auth/logout`
+for guidance, then remove the token from client storage; this endpoint does not
+revoke tokens that have already been issued. Tokens remain valid until they
+expire.
+
+Login and registration are rate-limited per client IP to 10 and 5 attempts per
+minute by default. Override these limits with
+`AUTH_LOGIN_RATE_LIMIT_PER_MINUTE` and `AUTH_REGISTER_RATE_LIMIT_PER_MINUTE`.
+If Redis is unavailable, authentication requests are allowed and the limiter
+logs a warning.
+
 Use `access_token` from the login response in the following examples:
 
 ```bash

@@ -29,6 +29,45 @@ async def test_upload_and_list_document(client, make_user, monkeypatch, tmp_path
     assert [item["id"] for item in listed.json()] == [document["id"]]
 
 
+async def test_failed_indexing_keeps_file_and_owner_can_retry(
+    client, make_user, monkeypatch, tmp_path
+):
+    owner = await make_user("owner@example.com")
+    other_user = await make_user("other@example.com")
+    monkeypatch.setattr(documents_api.settings, "document_storage_path", tmp_path)
+    calls = 0
+
+    def fail_once(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary indexing failure")
+        return 2
+
+    monkeypatch.setattr(documents_api, "index_document", fail_once)
+    uploaded = await client.post(
+        "/documents",
+        headers=owner,
+        files={"file": ("notes.txt", b"Retry these notes", "text/plain")},
+    )
+    assert uploaded.status_code == 503
+
+    listed = await client.get("/documents", headers=owner)
+    document = listed.json()[0]
+    assert document["status"] == "failed"
+    path = document_path(uuid.UUID(document["id"]), "notes.txt")
+    assert path.exists()
+
+    forbidden = await client.post(f"/documents/{document['id']}/retry", headers=other_user)
+    assert forbidden.status_code == 404
+
+    retried = await client.post(f"/documents/{document['id']}/retry", headers=owner)
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "ready"
+    assert retried.json()["chunk_count"] == 2
+    assert calls == 2
+
+
 async def test_upload_rejects_unsupported_file(client, make_user):
     headers = await make_user()
 
@@ -68,6 +107,39 @@ async def test_documents_are_private_and_delete_removes_file(
     assert deleted.status_code == 204
     assert not path.exists()
     assert (await client.get("/documents", headers=owner)).json() == []
+
+
+async def test_delete_can_be_retried_after_vector_cleanup_failure(
+    client, make_user, monkeypatch, tmp_path
+):
+    owner = await make_user()
+    monkeypatch.setattr(documents_api, "index_document", lambda *args: 1)
+    monkeypatch.setattr(documents_api.settings, "document_storage_path", tmp_path)
+    calls = 0
+
+    def fail_once(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary vector-store failure")
+
+    monkeypatch.setattr(documents_api, "delete_document_vectors", fail_once)
+    uploaded = await client.post(
+        "/documents",
+        headers=owner,
+        files={"file": ("notes.txt", b"Delete these notes", "text/plain")},
+    )
+    document_id = uploaded.json()["id"]
+    path = document_path(uuid.UUID(document_id), "notes.txt")
+
+    first_delete = await client.delete(f"/documents/{document_id}", headers=owner)
+    assert first_delete.status_code == 503
+    assert path.exists()
+
+    second_delete = await client.delete(f"/documents/{document_id}", headers=owner)
+    assert second_delete.status_code == 204
+    assert not path.exists()
+    assert calls == 2
 
 
 async def test_chat_uses_owned_document_context(

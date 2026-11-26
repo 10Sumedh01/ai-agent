@@ -4,6 +4,52 @@ This file records meaningful project changes, why they were made, and any code
 that was removed. Add new entries at the top and state `None` when a change
 removes no code. Git history remains the source for exact line-by-line diffs.
 
+## 2026-11-26 — Authentication rate limits and logout guidance
+
+**What changed**
+
+- Added Redis-backed per-IP rate limits for login and registration, configurable
+  through `AUTH_LOGIN_RATE_LIMIT_PER_MINUTE` and
+  `AUTH_REGISTER_RATE_LIMIT_PER_MINUTE`.
+- Changed `/auth/logout` to return explicit guidance for discarding the
+  client-held access token instead of redirecting as if the token were revoked.
+- Documented the stateless logout behavior and added authentication rate-limit
+  and logout tests.
+
+**Why**
+
+Rate limits reduce password-guessing and registration abuse. Since access
+tokens are stateless and are not revoked server-side, logout must make clear
+that clients need to discard their token.
+
+**Code removed**
+
+The redirect-only logout implementation was replaced with a JSON response.
+Issued tokens are not revoked and remain valid until expiration.
+
+## 2026-11-26 — Document cleanup and indexing retries
+
+**What changed**
+
+- Added cleanup for partial document files when storage or database persistence fails.
+- Kept uploaded files and failed document records when indexing fails, with an
+  owner-only `POST /documents/{document_id}/retry` endpoint to retry indexing.
+- Made deletion failures report an explicit retryable error so clients can repeat
+  the delete request to finish cleanup.
+- Added tests for owner-only indexing retries and deletion retries after vector
+  cleanup failures.
+
+**Why**
+
+Document storage, database records, and vector indexes are separate resources
+that can fail independently. Cleanup and retry paths make these failures
+recoverable without losing a valid upload.
+
+**Code removed**
+
+None. Existing upload and delete flows were extended with cleanup and retry
+handling.
+
 ## 2026-11-25 — Document search and RAG flow
 
 **What changed**

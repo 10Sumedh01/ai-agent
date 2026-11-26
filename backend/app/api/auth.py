@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, RedirectResponse, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.rate_limit import rate_limit_login, rate_limit_register
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models import User
 from app.db.session import get_db
@@ -13,7 +14,11 @@ from app.schemas.auth import Token, UserCreate, UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserOut | Token)
+@router.post(
+    "/register",
+    response_model=UserOut | Token,
+    dependencies=[Depends(rate_limit_register)],
+)
 async def register(
     data: UserCreate,
     response: Response,
@@ -43,7 +48,11 @@ async def register(
     return user
 
 
-@router.post("/login", response_model=Token)
+@router.post(
+    "/login",
+    response_model=Token,
+    dependencies=[Depends(rate_limit_login)],
+)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     user = await db.scalar(select(User).where(User.email == form.username.lower()))
     if not user or not verify_password(form.password, user.hashed_password):
@@ -55,6 +64,12 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = 
 async def me(user: User = Depends(get_current_user)):
     return user
 
-@router.get('/logout')
+
+@router.post("/logout")
 async def logout():
-    return RedirectResponse(url='/')
+    return {
+        "message": (
+            "Discard the access token on the client. This endpoint does not "
+            "revoke issued tokens."
+        )
+    }
