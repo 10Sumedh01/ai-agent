@@ -4,6 +4,29 @@ This file records meaningful project changes, why they were made, and any code
 that was removed. Add new entries at the top and state `None` when a change
 removes no code. Git history remains the source for exact line-by-line diffs.
 
+## 2026-11-26 — Document cleanup and indexing retries
+
+**What changed**
+
+- Added cleanup for partial document files when storage or database persistence fails.
+- Kept uploaded files and failed document records when indexing fails, with an
+  owner-only `POST /documents/{document_id}/retry` endpoint to retry indexing.
+- Made deletion failures report an explicit retryable error so clients can repeat
+  the delete request to finish cleanup.
+- Added tests for owner-only indexing retries and deletion retries after vector
+  cleanup failures.
+
+**Why**
+
+Document storage, database records, and vector indexes are separate resources
+that can fail independently. Cleanup and retry paths make these failures
+recoverable without losing a valid upload.
+
+**Code removed**
+
+None. Existing upload and delete flows were extended with cleanup and retry
+handling.
+
 ## 2026-11-25 — Document search and RAG flow
 
 **What changed**
