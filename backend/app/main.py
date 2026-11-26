@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import auth, conversations
+from app.api import auth, conversations,documents
 from app.services.embeddings import get_embedder
 from app.services.vectorstore import ensure_collection, get_qdrant
 
@@ -20,6 +20,7 @@ app = FastAPI(title="AI Agent Platform", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(conversations.router)
 app.include_router(documents.router)
+
 
 
 @app.get("/health")
