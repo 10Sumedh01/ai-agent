@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 150
     rag_top_k: int = 5
+    tavily_api_key: str | None = None
+    agent_max_steps: int = 6
 
 
 settings = Settings()
